@@ -1,0 +1,9 @@
+scrape_configs:
+  - job_name: 'nginx'
+    static_configs:
+      # prometheus
+      - targets: [ 'localhost:9090' ]
+      # cadvisor
+      - targets: [ 'cadvisor:8080' ]
+      # prometheus-nginx-exporter
+      - targets: [ 'nginx-prometheus-exporter:9113' ]
