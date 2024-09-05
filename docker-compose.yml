@@ -61,22 +61,20 @@ services:
     build: ./apps/client
     working_dir: /backend/
     command: sh app.sh
+    networks:
+      - localhost
 
-  # source: https://github.com/google/cadvisor
-  cadvisor:
-    image: gcr.io/cadvisor/cadvisor:v0.47.2
-    container_name: cadvisor
-    restart: always
-    depends_on:
-      - prometheus
-    volumes:
-      - /:/rootfs:ro
-      - /var/run:/var/run:ro
-      - /sys:/sys:ro
-      - /var/lib/docker/:/var/lib/docker:ro
-      - /dev/disk/:/dev/disk:ro
+  main-api:
+    build: ./apps/main
+    working_dir: /backend/
+    command: sh app.sh
+    networks:
+      - localhost
+
+  influxdb:
+    image: influxdb:1.4-alpine
     expose:
-      - 8080
+      - "8086"
     networks:
       - localhost
 
