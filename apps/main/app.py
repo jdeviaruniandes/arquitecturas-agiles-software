@@ -1,5 +1,6 @@
 import concurrent.futures
-from random import random
+import os
+import random
 
 import requests
 
@@ -14,6 +15,16 @@ app = Flask(__name__)
 api = Api(app)
 db = InfluxDBClient("influxdb", 8086, 'root', 'root', 'app-client')
 failure_timer = time() + 240  + random.randint(60, 180)  # 5 minutes in seconds
+
+def read_hostname():
+    """Reads the hostname from the /etc/hostname file."""
+    try:
+        with open("/etc/hostname", "r") as f:
+            hostname = f.read().strip()
+            return hostname
+    except FileNotFoundError:
+        print("Error: /etc/hostname file not found.")
+        return None
 
 def get_json(name, status = 200):
     now = datetime.now(timezone.utc)
@@ -67,8 +78,6 @@ class ApiRoute(Resource):
 class StatusRoute(Resource):
 
     def get(self):
-        host_id = request.headers.get('X-Host-ID')
-
         if time() > failure_timer:
             response = Response("Error Status", mimetype='text/plain', status = 500)
             response.headers['X-Host-ID'] = host_id
@@ -84,5 +93,6 @@ api.add_resource(ApiRoute, '/call/income')
 api.add_resource(StatusRoute, '/status')
 
 if __name__ == '__main__':
+    host_id = read_hostname()
     db.create_database('app-client')
     app.run(debug=True, host='0.0.0.0', port=80)
