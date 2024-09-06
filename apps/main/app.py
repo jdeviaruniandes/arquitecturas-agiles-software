@@ -1,10 +1,11 @@
 import concurrent.futures
+from random import random
+
 import requests
 
 from datetime import datetime, timezone
-from random import random
 from time import time, sleep
-from flask import Flask
+from flask import Flask, request, Response
 from flask_restful import Api, Resource
 from influxdb import InfluxDBClient
 
@@ -12,7 +13,7 @@ from influxdb import InfluxDBClient
 app = Flask(__name__)
 api = Api(app)
 db = InfluxDBClient("influxdb", 8086, 'root', 'root', 'app-client')
-failure_timer = time() + 300  # 5 minutes in seconds
+failure_timer = time() + 240  + random.randint(60, 180)  # 5 minutes in seconds
 
 def get_json(name, status = 200):
     now = datetime.now(timezone.utc)
@@ -37,11 +38,11 @@ def retry_request(url, delay):
         return response
 
     sleep(delay)
-    return retry_request(url, delay * 2)
+    return retry_request(url, delay * 1.25)
 
 def make_simultaneous_requests(urls):
     with concurrent.futures.ThreadPoolExecutor() as executor:
-        futures = [executor.submit(retry_request, url, 1) for url in urls]
+        futures = [executor.submit(retry_request, url, 0.25) for url in urls]
         return [future.result() for future in futures]
 
 class ApiRoute(Resource):
@@ -66,12 +67,18 @@ class ApiRoute(Resource):
 class StatusRoute(Resource):
 
     def get(self):
-        if time() > failure_timer:
-            db.write_points(get_json("status", 500))
-            return "Error Status", 500
+        host_id = request.headers.get('X-Host-ID')
 
-        db.write_points(get_json("status"))
-        return "Success Status", 200
+        if time() > failure_timer:
+            response = Response("Error Status", mimetype='text/plain', status = 500)
+            response.headers['X-Host-ID'] = host_id
+            db.write_points(get_json("status", 500))
+            return response
+
+        response = Response("Success Status", status = 200, mimetype='text/plain')
+        response.headers['X-Host-ID'] = host_id
+        db.write_points(get_json("status", 200))
+        return response
 
 api.add_resource(ApiRoute, '/call/income')
 api.add_resource(StatusRoute, '/status')

@@ -68,6 +68,15 @@ services:
     build: ./apps/main
     working_dir: /backend/
     command: sh app.sh
+    deploy:
+      replicas: 2
+    networks:
+      - localhost
+
+  monitor-main:
+    build: ./apps/monitor
+    working_dir: /backend/
+    command: sh app.sh
     networks:
       - localhost
 
