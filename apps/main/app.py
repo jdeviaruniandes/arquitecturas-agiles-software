@@ -1,20 +1,17 @@
 import concurrent.futures
-import os
-import random
+from venv import logger
 
 import requests
-
 from datetime import datetime, timezone
 from time import time, sleep
 from flask import Flask, request, Response
 from flask_restful import Api, Resource
 from influxdb import InfluxDBClient
 
-
 app = Flask(__name__)
 api = Api(app)
 db = InfluxDBClient("influxdb", 8086, 'root', 'root', 'app-client')
-failure_timer = time() + 240  + random.randint(60, 180)  # 5 minutes in seconds
+duration_time = {}
 
 def read_hostname():
     """Reads the hostname from the /etc/hostname file."""
@@ -26,7 +23,8 @@ def read_hostname():
         print("Error: /etc/hostname file not found.")
         return None
 
-def get_json(name, status = 200):
+
+def get_json(name, status = 200, duration = 0):
     now = datetime.now(timezone.utc)
     return [
         {
@@ -36,7 +34,8 @@ def get_json(name, status = 200):
             },
             "time": now,
             "fields": {
-                "status": status
+                "status": status,
+                "duration": duration
             }
         }
     ]
@@ -49,40 +48,61 @@ def retry_request(url, delay):
         return response
 
     sleep(delay)
-    return retry_request(url, delay * 1.25)
+    return retry_request(url, delay * 1.15)
 
-def make_simultaneous_requests(urls):
+def make_simultaneous_requests(urls, request_id):
     with concurrent.futures.ThreadPoolExecutor() as executor:
-        futures = [executor.submit(retry_request, url, 0.25) for url in urls]
-        return [future.result() for future in futures]
+        futures = [executor.submit(retry_request, url, 0.3) for url in urls]
+        return [future.result() for future in futures], request_id
+
+
+def make_simultaneous_requests_sync(urls, request_id):
+    results = []
+    for url in urls:
+        success = False
+        attempts = 0
+        while not success and attempts < 3:
+            try:
+                response = requests.get(url)
+                if response.status_code == 200:
+                    results.append(response.json())
+                    success = True
+                else:
+                    print(f"Error: {response.status_code} for URL {url}")
+            except Exception as e:
+                print(f"Error: {e} for URL {url}")
+            attempts += 1
+
+    return results, request_id
+
 
 class ApiRoute(Resource):
 
     def get(self):
-        if time() > failure_timer:
-            db.write_points(get_json("Api Call", 500))
-            return "Error Status", 500
-
         base_url = "http://nginx/information"
+        request_id = request.headers.get('X-Request-Id')
+        duration_time[request_id] = {}
         urls = [
             base_url+"/user",
             base_url+"/social",
             base_url+"/products",
         ]
 
-        make_simultaneous_requests(urls)
+        duration_time[request_id]["initial"] = time()
 
-        db.write_points(get_json("Api Call", 200))
+        results, request_id = make_simultaneous_requests_sync(urls, request_id)
+
+        duration_time[request_id]["final"] = time()
+        duration_time[request_id]["total"] = int(duration_time[request_id]["final"] - duration_time[request_id]["initial"])
+        logger.error(duration_time[request_id]["total"])
+
+        db.write_points(get_json("Api Call", 200, duration_time[request_id]["total"]))
+        duration_time.pop(request_id)
         return "Success Call ", 200
 
 class StatusRoute(Resource):
 
     def get(self):
-        if time() > failure_timer:
-            response = Response("Error Status", mimetype='text/plain', status = 500)
-            response.headers['X-Host-ID'] = host_id
-            db.write_points(get_json("status", 500))
-            return response
 
         response = Response("Success Status", status = 200, mimetype='text/plain')
         response.headers['X-Host-ID'] = host_id
