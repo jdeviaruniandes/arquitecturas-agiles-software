@@ -31,5 +31,5 @@ scenarios:
   - flow:
       - loop:
           - get:
-              url: '/api/get'
-        count: 50
+              url: '/call/income'
+        count: 6
