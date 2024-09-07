@@ -69,7 +69,7 @@ services:
     working_dir: /backend/
     command: sh app.sh
     deploy:
-      replicas: 1
+      replicas: 2
     networks:
       - localhost
 

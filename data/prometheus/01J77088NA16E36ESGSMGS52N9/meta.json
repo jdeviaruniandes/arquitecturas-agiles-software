@@ -1,0 +1,17 @@
+{
+	"ulid": "01J77088NA16E36ESGSMGS52N9",
+	"minTime": 1725727463004,
+	"maxTime": 1725732000000,
+	"stats": {
+		"numSamples": 7809,
+		"numSeries": 490,
+		"numChunks": 490
+	},
+	"compaction": {
+		"level": 1,
+		"sources": [
+			"01J77088NA16E36ESGSMGS52N9"
+		]
+	},
+	"version": 1
+}
