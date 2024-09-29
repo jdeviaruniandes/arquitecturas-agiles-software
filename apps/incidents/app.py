@@ -1,25 +1,33 @@
+import time
 from datetime import datetime, timezone
+import sys
 from flask import Flask, request, jsonify
 from influxdb import InfluxDBClient
 import requests
 
 app = Flask(__name__)
 internal_key = "internal_key"
+ban_time = 30
 
 incident_data = {
     1: {
         "company": 1,
-        "title": "Incident Example"
+        "title": "Incident Example",
+        "type": "Private"
     },
     2: {
         "company": 1,
-        "title": "Incident Same Company"
+        "title": "Incident Same Company",
+        "type": "Restricted"
     },
     3: {
         "company": 2,
-        "title": "Incident Another company"
+        "title": "Incident Another company",
+        "type": "Private"
     }
 }
+
+black_list = {}
 
 db = InfluxDBClient("influxdb", 8086, 'root', 'root', 'app-client')
 
@@ -39,20 +47,17 @@ def get_json(measurement, status = 200):
         }
     ]
 
-@app.route('/incident/<int:incident_id>', methods=['GET'])
+@app.route('/incidents/<int:incident_id>', methods=['GET'])
 def get_incident(incident_id):
     headers = request.headers
+    if request.remote_addr in black_list and time.time() < black_list[request.remote_addr]:
+        db.write_points(get_json("report_incident", 403))
+        return "Access Blocked" + str(black_list[request.remote_addr] - time.time()), 403
 
-    if not headers.has_key('Authorization'):
-        return "Error", 403
+    if headers.get('Authorization') is None:
+        return "Error, require token", 403
 
-    if incident_id not in incident_data:
-        db.write_points(get_json("incident", 404))
-        return 'User not found', 404
-
-    incident = incident_data[incident_id]
-
-    url = "http://auth/verify"
+    url = "http://auth-api/auth/verify"
     data = {
         "token": headers.get('Authorization'),
     }
@@ -62,12 +67,29 @@ def get_incident(incident_id):
 
     response = requests.post(url, json=data, headers=headers)
     if response.status_code != 200:
-        return "Error", response.status_code
+        black_list[request.remote_addr] = time.time() + ban_time
+        db.write_points(get_json("report_incident", 403))
+        return "Error, Invalid token", response.status_code
+
+    if incident_id not in incident_data:
+        db.write_points(get_json("read_incident", 404))
+        return 'User not found', 404
+
+    incident = incident_data[incident_id]
 
     body = response.json()
+    print(body, file=sys.stderr)
     if body["company"] != incident["company"]:
-        return "Error", 403
+        black_list[request.remote_addr] = time.time() + ban_time
+        db.write_points(get_json("report_incident", 403))
+        return "Error, Invalid Company", 403
 
+    if incident["type"] == "Restricted" and body["role"] != "Admin":
+        black_list[request.remote_addr] = time.time() + ban_time
+        db.write_points(get_json("report_incident", 403))
+        return "Error, Insufficient permissions", 403
+
+    db.write_points(get_json("read_incident", 200))
     return jsonify(incident)
 
 if __name__ == '__main__':
